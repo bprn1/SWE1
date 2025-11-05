@@ -137,7 +137,7 @@ void Commands() {
 	nodelay(stdscr, FALSE);
 	clear();
 	printw("========= Commands =========\n");
-	printw("Press q for Quests \nPress esc for Pause Menu \nPress t for a list of Commands\n");
+	printw("Press q for Quests \nPress esc for Pause Menu \nPress t for a list of Commands\n Press f to check your favor with the villagers\n");
 	printw("Press Enter to continue\n");
 	refresh();
 	getch();
@@ -165,10 +165,8 @@ void talkToVillager(Villager *v, Player *player) {
 				}
 			}
 			
-			//if(strlen(v->dialogue[current].options[i]) > 0 ) {
-				printw("%d) %s", i + 1, v->dialogue[current].options[i]);
-				refresh();
-			//}
+			printw("%d) %s", i + 1, v->dialogue[current].options[i]);
+			refresh();
 		}
 
 		refresh();
@@ -346,7 +344,7 @@ int startGame(Player *player, int firstTime) {
 		clear();
 		if(c != '1') {
 			printw("\nBefore starting to get to know the villagers let's learn the controls: \n");
-			printw("Press q for Quests \nPress esc for Pause Menu \nPress t for a list of Commands which you can configure\n");
+			printw("Press q for Quests \nPress esc for Pause Menu \nPress t for a list of Commands\n Press f to check your favor with the villagers\n");
 			printw("Press Enter to continue\n");
 			refresh();
 			c = getch();
@@ -389,7 +387,6 @@ int main() {
     int firstTime = 1;
 	int c;
 	initscr();
-	//noecho();
 	cbreak();
 	keypad(stdscr, TRUE);
 	printw("Welcome to The Lottery\n");
