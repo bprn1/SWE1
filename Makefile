@@ -1,7 +1,7 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -g
 LIBS = -lncurses
-SRCS = ui.c curses.c
+SRCS = ui.c 
 OBJS = $(SRCS:.c=.o)
 TARGET = game
 
