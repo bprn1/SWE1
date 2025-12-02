@@ -3,54 +3,14 @@
 #include <string.h>
 #include <unistd.h>
 #include <ncurses.h>
+#include <zmq.h>
+#include <jansson.h>
+#include "ui.h"
 
-typedef enum {
-	STATE_HOME,
-	STATE_TOWN_SQUARE,
-	STATE_EXIT, 
-	STATE_LOTTERY,
-	STATE_PAUSE
-} GameState;
 
-typedef enum {
-	EFFECT_NONE,
-	EFFECT_FAVOR, 
-	EFFECT_QUEST
-} EffectType;
-
-typedef struct {
-	char name[50];
-	char description[256]; // number of quests with description
-	char hint[128]; //hints per quest
-	int giveHint; // bool/flag for if user wants to show hint or not
-	int accepted;
-	int completed;
-} QuestStruct;
-
-typedef struct {
-	GameState location;
-	char name[50];
-	int favor;
-	QuestStruct quests[3]; //has 3 quests max 
-	int questCount; //number of quests accepted
-	GameState prevLocation;
-	int glasses; //did the player find the glasses
-} Player;
-
-typedef struct {
-	char text[256]; //what villager can say
-	char options[3][128]; //3 options with text buffer
-	int next[3];	// what dialog to go to after each option
-	EffectType effect[3];
-	int effectVal[3];
-	int questIndex[3];
-} Dialogue;
-
-typedef struct {
-	char name[50];
-	Dialogue *dialogue;
-	int num_dialogues;
-} Villager;
+// Global Variables for  player usage
+int userIndex = 0;
+char userName[50] = "\0";
 
 QuestStruct questOptions[] = {
 	{"Missing Glasses", "Find Edwards missing glasses that he dropped.", "Try inspecting the townsquare.", 0, 0, 0},
@@ -111,24 +71,27 @@ void PauseMenu(Player *player) {
 	printw("========= Pause Menu =========\n");
 	printw("1) Save\n");
 	printw("2) Save and Exit\n");
-	printw("3) Settings\n");
-	printw("4) Achievements\n");
-	printw("5) Back to game\n");
+	printw("3) Back to game\n");
 	refresh();
 	int c = getch();
 	switch(c) {
 		case '1':
-		case '2':
-		case '3':
-		case '4':
-			printw("\nNot implemented will be soon!\n");
-			printw("Press any button to continue\n");
-			refresh();
-			c = getch();
+			saveUserData(player);
 			break;
-		case '5':
+		case '2':
+			saveUserData(player);
+			player->location = STATE_EXIT;
+			player->prevLocation = STATE_PAUSE;
+			break;
+		case '3':
 			player->location = player->prevLocation;
 			player->prevLocation = STATE_PAUSE;
+			break;
+		default:
+			printw("Incorrect key pressed, please try again!\n");
+			refresh();
+			napms(1000);
+			break;
 	}
 	nodelay(stdscr, TRUE);
 }
@@ -137,7 +100,7 @@ void Commands() {
 	nodelay(stdscr, FALSE);
 	clear();
 	printw("========= Commands =========\n");
-	printw("Press q for Quests \nPress esc for Pause Menu \nPress t for a list of Commands\n Press f to check your favor with the villagers\n");
+	printw("Press q for Quests \nPress esc for Pause Menu \nPress t for a list of Commands \nPress f to check your favor with the villagers\n");
 	printw("Press Enter to continue\n");
 	refresh();
 	getch();
@@ -344,7 +307,7 @@ int startGame(Player *player, int firstTime) {
 		clear();
 		if(c != '1') {
 			printw("\nBefore starting to get to know the villagers let's learn the controls: \n");
-			printw("Press q for Quests \nPress esc for Pause Menu \nPress t for a list of Commands\n Press f to check your favor with the villagers\n");
+			printw("Press q for Quests \nPress esc for Pause Menu \nPress t for a list of Commands \nPress f to check your favor with the villagers\n");
 			printw("Press Enter to continue\n");
 			refresh();
 			c = getch();
@@ -365,6 +328,7 @@ int startGame(Player *player, int firstTime) {
 				TownOptions(player);
 				break;
 			case STATE_EXIT:
+				gameOver = 1;
 				return win = 2;
 				break;
 			case STATE_LOTTERY:
@@ -383,6 +347,208 @@ int startGame(Player *player, int firstTime) {
 	return win;
 }
 
+// Microservices:
+
+void saveUserData(Player* player) {
+    void *context = zmq_ctx_new();
+    void *socket = zmq_socket(context, ZMQ_REQ);
+    zmq_connect(socket, "tcp://localhost:5458");
+    json_t *req = json_object();
+    json_object_set_new(req, "index", json_integer(userIndex));
+    json_object_set_new(req, "username", json_string(userName));
+	json_object_set_new(req, "items", json_string(player->glasses == 1 ? "glasses" : "no_glasses"));
+	json_object_set_new(req, "favor", json_integer(player->favor));
+	json_t *questsJSON = json_object();
+	for(int i = 0; i <player->questCount; i++) {
+		char* status = "pending";
+		if(player->quests[i].completed == 1) {
+			status = "completed";
+		} else if(player->quests[i].accepted == 1) {
+			status = "in_progress";
+		}
+		json_object_set_new(questsJSON, player->quests[i].name, json_string(status));
+	}
+	json_object_set_new(req, "quests", questsJSON);
+
+    char *jsonData = json_dumps(req, JSON_COMPACT);
+
+    zmq_send(socket, jsonData, strlen(jsonData), 0);
+    free(jsonData);
+    json_decref(req);
+    char* reply = malloc(2048);
+	if(!reply) return;
+    int received = zmq_recv(socket, reply, 2047, 0);
+	reply[received] = '\0';
+    zmq_close (socket);
+    zmq_ctx_destroy (context);
+	printw("%s\n", reply);
+	refresh();
+	napms(1000);
+}
+
+int loginUser() {
+	// login to an exsisting user file, use login microservice
+	char username[50];
+	char password[50];
+	void *context = zmq_ctx_new();
+	void *socket = zmq_socket(context, ZMQ_REQ);
+	zmq_connect(socket, "tcp://localhost:5556");
+
+	json_t *req = json_object();
+	json_object_set_new(req, "csv_file", json_string("login.csv"));
+	printw("\nEnter Username: ");
+	getstr(username);
+	printw("\nEnter Password: ");
+	getstr(password);
+	json_object_set_new(req, "username", json_string(username));
+	json_object_set_new(req, "password", json_string(password));
+	char *jsonData = json_dumps(req, JSON_COMPACT);
+	zmq_send(socket, jsonData, strlen(jsonData), 0);
+	free(jsonData);
+	json_decref(req);
+	char reply[2048];
+	int received = zmq_recv(socket, reply, sizeof(reply) - 1, 0);
+	reply[received] = '\0';
+
+	json_error_t error;
+	json_t *root = json_loads(reply, 0, &error);
+	if (!root) {
+		printf("JSON parse error: %s\n", error.text);
+	} else {
+		json_t *indexJSON = json_object_get(root, "index");
+		json_t *statusJSON = json_object_get(root, "status");
+		if(indexJSON && json_is_integer(indexJSON)) {
+			userIndex = (int)json_integer_value(indexJSON);
+		}
+		if(statusJSON && json_is_string(statusJSON) && (strcmp(json_string_value(statusJSON), "FAIL") == 0 || strcmp(json_string_value(statusJSON), "ERROR") == 0)) {
+			return 0;
+		}
+		json_decref(root);
+	}
+	strncpy(userName, username, sizeof(userName)-1);
+	userName[sizeof(userName) -1] = '\0';
+	zmq_close (socket);
+	zmq_ctx_destroy (context);
+	return 1;
+}
+
+void parsePlayerData(char* json_str, Player* player) {
+	json_error_t error;
+	json_t* root = json_loads(json_str, 0, &error);
+	if(!root) {
+		printf("JSON parse error: %s\n", error.text);
+		return;
+	}
+
+	json_t* usernameJSON = json_object_get(root, "username");
+	if(usernameJSON) {
+		strncpy(player->name, json_string_value(usernameJSON), sizeof(player->name)-1);
+	}
+	json_t* itemsJSON = json_object_get(root, "items");
+	if(itemsJSON) {
+		const char* items = json_string_value(itemsJSON);
+		player->glasses = (strcmp(items, "glasses") == 0) ? 1 : 0;
+	}
+	json_t* favorJSON = json_object_get(root, "favor");
+    if (favorJSON) {
+        player->favor = json_integer_value(favorJSON);
+    }
+
+    // Quests
+    json_t* questsJSON = json_object_get(root, "quests");
+    if (questsJSON && json_is_object(questsJSON)) {
+        const char* key;
+        json_t* value;
+        size_t i = 0;
+        json_object_foreach(questsJSON, key, value) {
+            if (i >= 3) break;
+            strncpy(player->quests[i].name, key, sizeof(player->quests[i].name)-1);
+            const char* status = json_string_value(value);
+            player->quests[i].completed = (strcmp(status, "completed") == 0) ? 1 : 0;
+            player->quests[i].accepted = (strcmp(status, "in_progress") == 0) ? 1 : 0;
+            i++;
+        }
+		player->questCount = i;
+	}
+	json_decref(root);
+}
+
+void loadUserInfo(Player* player) {
+    void *context = zmq_ctx_new();
+    void *socket = zmq_socket(context, ZMQ_REQ);
+    zmq_connect(socket, "tcp://localhost:5459");
+    json_t *req = json_object();
+    json_object_set_new(req, "index", json_integer(userIndex));
+    json_object_set_new(req, "username", json_string(userName));
+    char *jsonData = json_dumps(req, JSON_COMPACT);
+
+    zmq_send(socket, jsonData, strlen(jsonData), 0);
+    free(jsonData);
+    json_decref(req);
+    char* reply = malloc(2048);
+	if (!reply) return;
+    int received = zmq_recv(socket, reply, 2047, 0);
+	reply[received] = '\0';
+    zmq_close (socket);
+    zmq_ctx_destroy (context);
+	parsePlayerData(reply, player);
+}
+
+void getIndex() {
+	void *context = zmq_ctx_new();
+	void *socket = zmq_socket(context, ZMQ_REQ);
+	zmq_connect(socket, "tcp://localhost:5557");
+	char* data = "get!login.csv";
+	// I want to get back the new index needed to append the new user's data to
+	
+	printw("sending data...\n");
+	refresh();
+
+	zmq_send(socket, data, strlen(data), 0);
+	char reply[2048];
+	int received = zmq_recv(socket, reply, sizeof(reply) - 1, 0);
+	reply[received] = '\0';
+	userIndex = atoi(reply);
+
+	printw("User index %d\n", userIndex);
+	refresh();
+
+	zmq_close (socket);
+	zmq_ctx_destroy (context);
+}
+
+void newUser() {
+	char username[50];
+	char password[50];
+	char data[256];
+	printw("\nEnter Username: ");
+	getstr(username);
+	printw("\nEnter Password: ");
+	getstr(password);
+	getIndex();
+	void *context = zmq_ctx_new();
+	void *socket = zmq_socket(context, ZMQ_REQ);
+	zmq_connect(socket, "tcp://localhost:5555");
+	sprintf(data, "append!login.csv!%d,%s,%s", userIndex, username, password);
+	
+	printw("sending data... %s\n", data);
+	refresh();
+
+	zmq_send(socket, data, strlen(data), 0);
+	char reply[2048];
+	int received = zmq_recv(socket, reply, sizeof(reply) - 1, 0);
+	reply[received] = '\0';
+	strncpy(userName, username, sizeof(userName)-1);
+	userName[sizeof(userName) -1] = '\0';
+
+	printw("%s\n", reply);
+	refresh();
+
+	napms(1000);
+	zmq_close (socket);
+	zmq_ctx_destroy (context);
+}
+
 int main() {
     int firstTime = 1;
 	int c;
@@ -391,11 +557,26 @@ int main() {
 	keypad(stdscr, TRUE);
 	printw("Welcome to The Lottery\n");
 	printw("By: Bianca Rivera Nales\n");
-	printw("To start the game press 's' to quit press 'q': ");
+	printw("To start the game and create a new save file press 's', to login to an exisitng save file press 'l', or to quit press 'q': ");
     refresh();
 	while((c = getch()) != 'q') {
-		if(c == 's') {
+		if(c == 's' || c == 'l') {
 			Player player = {STATE_HOME, "", 0, {}, 0, STATE_PAUSE, 0};
+			if(c == 's') {
+				// create a new login add to user's file at next available index
+				newUser();
+			}
+			if(c == 'l') {
+				int success = loginUser();
+				if(success == 0) {
+					printw("Incorrect login, please try again later.");
+					refresh();
+					napms(1000);
+					break;
+				}
+				firstTime = 0;
+				loadUserInfo(&player);
+			}
 			int win = startGame(&player, firstTime);
 			clear();
 			printw("Win value = %d\n", win);
@@ -405,7 +586,7 @@ int main() {
 				printw("You got stoned to death and lost the game :( maybe be nicer to the villagers next time...\n");
 				refresh();
 			} else if(win == 2) {
-				printw("You quit the game, we hope to have a save function next time you play!\n");
+				printw("You exited the game, come back and finish the game soon!\n");
 				refresh();
 			} else {
 				printw("You avoided getting stoned (phew!), and won the game! Congrats!\n");
