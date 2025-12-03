@@ -34,9 +34,8 @@ def saveUser(updatedRow, filename):
     except Exception as e:
         print("Error json encoding: ", e)
         return 0
-    print(f"Row is: {row} \n Rows is: {rows}")
     if not found and int(row["index"]) + 1 == int(updatedRow["index"]):
-        print("Index is next row, appending")
+        print("Index is next row, appending\n")
         rows.append({
             "index": updatedRow["index"],
             "username": updatedRow["username"],
