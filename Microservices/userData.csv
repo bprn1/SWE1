@@ -2,4 +2,3 @@ index,username,items,quests,favor
 1,test,glasses,"{""Missing Glasses"": ""completed""}",-8
 2,Joe,no_glasses,"{""Missing Glasses"": ""not_started""}",-5
 3,Bella,no_glasses,"{""Missing Glasses"": ""completed""}",5
-4,Bianca,glasses,"{""Missing Glasses"": ""completed""}",500
