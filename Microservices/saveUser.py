@@ -34,7 +34,18 @@ def saveUser(updatedRow, filename):
     except Exception as e:
         print("Error json encoding: ", e)
         return 0
-    if not found:
+    print(f"Row is: {row} \n Rows is: {rows}")
+    if not found and int(row["index"]) + 1 == int(updatedRow["index"]):
+        print("Index is next row, appending")
+        rows.append({
+            "index": updatedRow["index"],
+            "username": updatedRow["username"],
+            "items": updatedRow["items"],
+            "quests": json.dumps(updatedRow["quests"]),
+            "favor": updatedRow["favor"]
+        })
+    elif not found:
+        print("Could not find user index")
         return 0
     #Now try to write back to the csv
     try:

@@ -13,10 +13,10 @@ int main () {
     zmq_connect(socket, "tcp://localhost:5458");
 
     json_t *req = json_object();
-    json_object_set_new(req, "index", json_integer(1));
-    json_object_set_new(req, "username", json_string("test"));
+    json_object_set_new(req, "index", json_integer(4));
+    json_object_set_new(req, "username", json_string("Bianca"));
     json_object_set_new(req, "items", json_string(1 == 1 ? "glasses" : "no_glasses"));
-	json_object_set_new(req, "favor", json_integer(0));
+	json_object_set_new(req, "favor", json_integer(500));
 	json_t *questsJSON = json_object();
 	for(int i = 0; i < 1; i++) {
 		char* status = "pending";
